@@ -27,7 +27,7 @@ async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
     let offset = 0;
     var markets = [];
     const now = new Date();
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     do {
         var marketsPage = JSON.parse((await client.get('/markets', {
             params: {
@@ -40,7 +40,7 @@ async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
             }
         })).data);
         offset += marketsPage.length;
-        const newMarkets = marketsPage.filter(m => new Date(m.createdAt) > today);
+        const newMarkets = marketsPage.filter(m => new Date(m.createdAt) > twentyFourHoursAgo);
         if (newMarkets.length == 0) break;
         markets.push(...newMarkets);
     } while (marketsPage.length > 0);
