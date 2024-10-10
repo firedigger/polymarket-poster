@@ -8,3 +8,8 @@ getting_started.md
 node_modules/@types/
 node_modules/azure-functions-core-tools/
 node_modules/typescript/
+markets.txt
+tags.json
+README.md
+__blobstorage__
+__queuestorage__

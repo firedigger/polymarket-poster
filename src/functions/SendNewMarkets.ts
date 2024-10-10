@@ -13,7 +13,7 @@ async function getTags(client: Axios): Promise<void> {
             }
         })).data);
         count += tags.length;
-        var t = tags.find(e => e.label?.includes('ukraine'));
+        var t = tags.find((e: { label: string | string[]; }) => e.label?.includes('ukraine'));
         if (t) {
             break;
         }
@@ -40,7 +40,7 @@ async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
             }
         })).data);
         offset += marketsPage.length;
-        const newMarkets = marketsPage.filter(m => new Date(m.createdAt) > twentyFourHoursAgo);
+        const newMarkets = marketsPage.filter((m: { createdAt: string | number | Date; }) => new Date(m.createdAt) > twentyFourHoursAgo);
         if (newMarkets.length == 0) break;
         markets.push(...newMarkets);
     } while (marketsPage.length > 0);
@@ -59,7 +59,7 @@ function formatOutcome(outcome: string) {
     }
 }
 
-export async function sendNewMarkets(myTimer: Timer, context: InvocationContext): Promise<void> {
+export async function sendNewMarkets(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const formatter = new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 0,
         maximumFractionDigits: 1
@@ -74,7 +74,7 @@ export async function sendNewMarkets(myTimer: Timer, context: InvocationContext)
     const lines = [];
     const set = new Set();
     for (const tag of tags) {
-        const newLines = [];
+        const newLines: string[] = [];
         const markets = await getMarkets(client, tag.id);
         markets.forEach(m => {
             if (set.has(m.id)) return;
@@ -96,7 +96,7 @@ export async function sendNewMarkets(myTimer: Timer, context: InvocationContext)
             fs.writeFileSync('markets.txt', message);
         const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY!, { polling: false });
         const REPORT_CHAT_ID = '44284808';
-        const chatId = process.env.AZURE_FUNCTIONS_ENVIRONMENT === 'Development' ? REPORT_CHAT_ID : '346672381';
+        const chatId = process.env.AZURE_FUNCTIONS_ENVIRONMENT === 'Development' || !toTarget ? REPORT_CHAT_ID : '346672381';
         await bot.sendMessage(chatId, message);
     }
 }
@@ -104,4 +104,16 @@ export async function sendNewMarkets(myTimer: Timer, context: InvocationContext)
 app.timer('SendNewMarkets', {
     schedule: '0 0 6 * * *',
     handler: sendNewMarkets
+});
+
+app.http('ManualSendNewMarkets', {
+    methods: ["POST"],
+    authLevel: "function",
+    handler: async (request, context) => {
+        await sendNewMarkets(undefined, context, false);
+        return {
+            status: 200,
+            body: "OK"
+        };
+    }
 });
