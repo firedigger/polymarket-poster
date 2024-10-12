@@ -47,6 +47,36 @@ export async function getRecentMarkets(client: Axios, tag_id: number): Promise<a
     return markets;
 }
 
+export async function getClosingMarkets(client: Axios, tag_id: number | undefined = undefined, max_pages: number = 2): Promise<any[]> {
+    let offset = 0;
+    const markets = [];
+    const stopWords = ['beat', 'say', 'match', 'combine', 'win', 'vs.', 'NFL', 'tweet'];
+    let i = 0;
+    do {
+        var marketsPage = JSON.parse((await client.get('/markets', {
+            params: {
+                active: true,
+                closed: false,
+                tag_id: tag_id,
+                offset: offset,
+                order: 'endDate',
+                ascending: true,
+                end_date_min: new Date().toISOString()
+            }
+        })).data);
+        offset += marketsPage.length;
+        const newMarkets = marketsPage.filter((m: {
+            question: string; endDate: string | number | Date;
+        }) => stopWords.every(w => !m.question.includes(w)));
+        if (newMarkets.length) {
+            markets.push(...newMarkets);
+            i++;
+            if (i >= max_pages) break;
+        }
+    } while (marketsPage.length > 0);
+    return markets;
+}
+
 async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
     let offset = 0;
     var markets = [];
@@ -90,6 +120,14 @@ export async function analyzeMarketProfit(client: Axios, market_id: number): Pro
     return profit;
 }
 
+export async function analyzeClosingMarketProfits(client: Axios): Promise<void> {
+    const markets = await getClosingMarkets(client, undefined, 4);
+    const threshold = 0.19;
+    const profitMarkets = markets.map(m => ({ question: m.question, endDate: m.endDate, annualizedProfit: (1 / Math.max(m.bestAsk, 1 - m.bestBid) - 1) / calculatePartOfTheYear(new Date(m.endDate)) })).filter(m => m.annualizedProfit > threshold);
+    profitMarkets.sort((a, b) => b.annualizedProfit - a.annualizedProfit);
+    fs.writeFileSync("profitMarkets.txt", profitMarkets.map(m => `${m.question},${m.annualizedProfit},${m.endDate}`).join('\n'));
+}
+
 export function formatOutcome(outcome: string) {
     switch (outcome) {
         case 'Yes':
@@ -99,4 +137,15 @@ export function formatOutcome(outcome: string) {
         default:
             return outcome + "=";
     }
+}
+
+export async function calculateCurrentBetsProfit(client: Axios, user_id: string): Promise<void> {
+    const positions: any[] = JSON.parse((await client.get(`https://data-api.polymarket.com/positions`, {
+        params: {
+            user: user_id
+        }
+    })).data);
+    const profitMarkets = positions.map((p: { curPrice: number; endDate: string | number | Date; title: any; }) => ({ question: p.title, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) }));
+    profitMarkets.sort((a, b) => a.annualizedProfit - b.annualizedProfit);
+    fs.writeFileSync("profitMarkets.txt", profitMarkets.map(m => `${m.question},${m.annualizedProfit}`).join('\n'));
 }
