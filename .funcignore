@@ -10,6 +10,7 @@ node_modules/azure-functions-core-tools/
 node_modules/typescript/
 markets.txt
 tags.json
+profitMarkets.txt
 README.md
 __blobstorage__
 __queuestorage__

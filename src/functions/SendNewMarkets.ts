@@ -1,63 +1,8 @@
-import { app, InvocationContext, Timer } from "@azure/functions";
+import { app, InvocationContext } from "@azure/functions";
 import { Axios } from 'axios';
 import * as fs from 'fs';
 import TelegramBot from 'node-telegram-bot-api';
-
-async function getTags(client: Axios): Promise<void> {
-    let count = 0;
-    var taglabels = [];
-    do {
-        var tags = JSON.parse((await client.get('/tags', {
-            params: {
-                offset: count
-            }
-        })).data);
-        count += tags.length;
-        var t = tags.find((e: { label: string | string[]; }) => e.label?.includes('ukraine'));
-        if (t) {
-            break;
-        }
-        taglabels.push(...tags);
-    } while (tags.length);
-    taglabels.sort();
-    fs.writeFileSync('tags.json', JSON.stringify(taglabels, null, 2));
-}
-
-async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
-    let offset = 0;
-    var markets = [];
-    const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    do {
-        var marketsPage = JSON.parse((await client.get('/markets', {
-            params: {
-                active: true,
-                closed: false,
-                tag_id: tag_id,
-                offset: offset,
-                order: 'createdAt',
-                ascending: false
-            }
-        })).data);
-        offset += marketsPage.length;
-        const newMarkets = marketsPage.filter((m: { createdAt: string | number | Date; }) => new Date(m.createdAt) > twentyFourHoursAgo);
-        if (newMarkets.length == 0) break;
-        markets.push(...newMarkets);
-    } while (marketsPage.length > 0);
-    return markets;
-}
-
-
-function formatOutcome(outcome: string) {
-    switch (outcome) {
-        case 'Yes':
-            return '🟢';
-        case 'No':
-            return '🔴';
-        default:
-            return outcome + "=";
-    }
-}
+import { formatOutcome, getRecentMarkets, myTags } from "../helpers";
 
 export async function sendNewMarkets(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const formatter = new Intl.NumberFormat('en-US', {
@@ -70,12 +15,12 @@ export async function sendNewMarkets(myTimer: any, context: InvocationContext, t
             'Content-Type': 'application/json'
         }
     });
-    const tags = [{ id: 96, label: 'Ukraine' }, { id: 100196, label: 'Fed rates' }, { id: 154, label: 'Middle East' }, { id: 131, label: 'Interest rates' }];
+    const tags = myTags;
     const lines = [];
     const set = new Set();
     for (const tag of tags) {
         const newLines: string[] = [];
-        const markets = await getMarkets(client, tag.id);
+        const markets = await getRecentMarkets(client, tag.id);
         markets.forEach(m => {
             if (set.has(m.id)) return;
             set.add(m.id);
@@ -99,7 +44,11 @@ export async function sendNewMarkets(myTimer: any, context: InvocationContext, t
         const chatId = process.env.AZURE_FUNCTIONS_ENVIRONMENT === 'Development' || !toTarget ? REPORT_CHAT_ID : '346672381';
         await bot.sendMessage(chatId, message);
     }
+    else {
+        context.log('No new markets');
+    }
 }
+
 
 app.timer('SendNewMarkets', {
     schedule: '0 0 6 * * *',

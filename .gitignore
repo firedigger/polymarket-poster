@@ -6,6 +6,7 @@ edge
 Publish
 markets.txt
 tags.json
+profitMarkets.txt
 
 *.user
 *.suo

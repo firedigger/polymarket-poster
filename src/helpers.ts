@@ -1,0 +1,102 @@
+import { Axios } from 'axios';
+import * as fs from 'fs';
+
+export const myTags = [{ id: 96, label: 'Ukraine' }, { id: 100196, label: 'Fed rates' }, { id: 154, label: 'Middle East' }, { id: 131, label: 'Interest rates' }];
+
+async function getTags(client: Axios): Promise<void> {
+    let count = 0;
+    var taglabels = [];
+    do {
+        var tags = JSON.parse((await client.get('/tags', {
+            params: {
+                offset: count
+            }
+        })).data);
+        count += tags.length;
+        var t = tags.find((e: { label: string | string[]; }) => e.label?.includes('ukraine'));
+        if (t) {
+            break;
+        }
+        taglabels.push(...tags);
+    } while (tags.length);
+    taglabels.sort();
+    fs.writeFileSync('tags.json', JSON.stringify(taglabels, null, 2));
+}
+
+export async function getRecentMarkets(client: Axios, tag_id: number): Promise<any[]> {
+    let offset = 0;
+    var markets = [];
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    do {
+        var marketsPage = JSON.parse((await client.get('/markets', {
+            params: {
+                active: true,
+                closed: false,
+                tag_id: tag_id,
+                offset: offset,
+                order: 'createdAt',
+                ascending: false
+            }
+        })).data);
+        offset += marketsPage.length;
+        const newMarkets = marketsPage.filter((m: { createdAt: string | number | Date; }) => new Date(m.createdAt) > twentyFourHoursAgo);
+        if (newMarkets.length == 0) break;
+        markets.push(...newMarkets);
+    } while (marketsPage.length > 0);
+    return markets;
+}
+
+async function getMarkets(client: Axios, tag_id: number): Promise<any[]> {
+    let offset = 0;
+    var markets = [];
+    do {
+        var marketsPage = JSON.parse((await client.get('/markets', {
+            params: {
+                active: true,
+                closed: false,
+                tag_id: tag_id,
+                offset: offset,
+                order: 'createdAt',
+                ascending: false
+            }
+        })).data);
+        offset += marketsPage.length;
+        if (marketsPage.length == 0) break;
+        markets.push(...marketsPage);
+    } while (marketsPage.length > 0);
+    return markets;
+}
+
+async function getMarket(client: Axios, market_id: number): Promise<any> {
+    return JSON.parse((await client.get(`/markets/${market_id}`)).data);
+}
+
+export function calculatePartOfTheYear(deadline: Date): number {
+    return (deadline.getTime() - Date.now()) / (Date.UTC(deadline.getUTCFullYear() + 1, 0, 1) - Date.UTC(deadline.getUTCFullYear(), 0, 1));
+}
+
+export async function analyzeMarketProfits(client: Axios, tag_id: number): Promise<void> {
+    const markets = await getMarkets(client, tag_id);
+    const threshold = 0.19;
+    const profitMarkets = markets.map(m => ({ question: m.question, annualizedProfit: (1 / Math.max(m.bestAsk, 1 - m.bestBid) - 1) / calculatePartOfTheYear(new Date(m.endDate)) })).filter(m => m.annualizedProfit > threshold);
+    profitMarkets.sort((a, b) => b.annualizedProfit - a.annualizedProfit);
+    fs.writeFileSync("profitMarkets.txt", profitMarkets.map(m => `${m.question},${m.annualizedProfit}`).join('\n'));
+}
+
+export async function analyzeMarketProfit(client: Axios, market_id: number): Promise<number> {
+    const market = await getMarket(client, market_id);
+    const profit = (1 / Math.max(market.bestAsk, 1 - market.bestBid) - 1) / calculatePartOfTheYear(new Date(market.endDate));
+    return profit;
+}
+
+export function formatOutcome(outcome: string) {
+    switch (outcome) {
+        case 'Yes':
+            return '🟢';
+        case 'No':
+            return '🔴';
+        default:
+            return outcome + "=";
+    }
+}
