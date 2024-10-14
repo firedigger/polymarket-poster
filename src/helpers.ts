@@ -149,3 +149,23 @@ export async function calculateCurrentBetsProfit(client: Axios, user_id: string)
     profitMarkets.sort((a, b) => a.annualizedProfit - b.annualizedProfit);
     fs.writeFileSync("profitMarkets.txt", profitMarkets.map(m => `${m.question},${m.annualizedProfit}`).join('\n'));
 }
+
+export async function calculateCheaperPositions(client: Axios, user_id: string): Promise<void> {
+    const positions: any[] = JSON.parse((await client.get(`https://data-api.polymarket.com/positions`, {
+        params: {
+            user: user_id
+        }
+    })).data);
+    const markets: any[] = JSON.parse((await client.get(`/markets`, {
+        params: new URLSearchParams(positions.map((p: { conditionId: string }) => ['condition_ids', p.conditionId]))
+    })).data);
+    const cheaperPositions = positions.map(p => {
+        return { ...p, market: markets.find((m: { conditionId: string; }) => m.conditionId == p.conditionId) };
+    }).filter(p => p.market).map((p: { avgPrice: number; conditionId: string; question: string; outcome: string, market: any; title: string }) => {
+        const firstOutcome = JSON.parse(p.market.outcomes)[0];
+        const newPrice = p.outcome == firstOutcome ? p.market.bestAsk : 1 - p.market.bestBid;
+        const priceReduced = p.market.oneDayPriceChange && ((p.outcome == firstOutcome) == (p.market.oneDayPriceChange < 0));
+        return { ...p, newPrice, priceReduced };
+    }).filter(p => p.newPrice < p.avgPrice && p.priceReduced);
+    fs.writeFileSync("cheaperPositions.txt", cheaperPositions.map(m => `${m.title} is cheaper by ${Math.round((m.avgPrice - m.newPrice) / m.avgPrice * 100)}%`).join('\n'));
+}
