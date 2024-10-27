@@ -2,6 +2,8 @@ import { Axios } from 'axios';
 import * as fs from 'fs';
 
 export const myTags = [{ id: 96, label: 'Ukraine' }, { id: 100196, label: 'Fed rates' }, { id: 154, label: 'Middle East' }, { id: 131, label: 'Interest rates' }];
+export const user_id = "0xBcBa8baE2E66da40fDc18C80064b06cF4F124573";
+export const arr_threshold = 0.5;
 
 async function getTags(client: Axios): Promise<void> {
     let count = 0;
@@ -103,7 +105,7 @@ async function getMarket(client: Axios, market_id: number): Promise<any> {
 }
 
 export function calculatePartOfTheYear(deadline: Date): number {
-    return (deadline.getTime() - Date.now()) / (Date.UTC(deadline.getUTCFullYear() + 1, 0, 1) - Date.UTC(deadline.getUTCFullYear(), 0, 1));
+    return Math.max(deadline.getTime() - Date.now(), 24 * 60 * 60 * 1000) / (Date.UTC(deadline.getUTCFullYear() + 1, 0, 1) - Date.UTC(deadline.getUTCFullYear(), 0, 1));
 }
 
 export async function analyzeMarketProfits(client: Axios, tag_id: number): Promise<void> {
@@ -139,23 +141,35 @@ export function formatOutcome(outcome: string) {
     }
 }
 
-export async function calculateCurrentBetsProfit(client: Axios, user_id: string): Promise<void> {
-    const positions: any[] = JSON.parse((await client.get(`https://data-api.polymarket.com/positions`, {
+export async function getPositions(client: Axios, user_id: string): Promise<any[]> {
+    return JSON.parse((await client.get(`https://data-api.polymarket.com/positions`, {
         params: {
             user: user_id
         }
     })).data);
+}
+
+export async function getPositionsWithMarkets(client: Axios, user_id: string): Promise<any[]> {
+    const positions = await getPositions(client, user_id);
+    const markets = JSON.parse((await client.get(`/markets`, {
+        params: new URLSearchParams(positions.map((p: { conditionId: string }) => ['condition_ids', p.conditionId]))
+    })).data);
+    return positions.map(p => {
+        return { ...p, market: markets.find((m: { conditionId: string; }) => m.conditionId == p.conditionId) };
+    }).filter(p => p.market).map(p => {
+        return { ...p, bet: JSON.parse(p.market.outcomes)[0] === p.outcome };
+    });
+}
+
+export async function calculateCurrentBetsProfit(client: Axios, user_id: string): Promise<void> {
+    const positions = await getPositions(client, user_id);
     const profitMarkets = positions.map((p: { curPrice: number; endDate: string | number | Date; title: any; }) => ({ question: p.title, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) }));
     profitMarkets.sort((a, b) => a.annualizedProfit - b.annualizedProfit);
     fs.writeFileSync("profitMarkets.txt", profitMarkets.map(m => `${m.question},${m.annualizedProfit}`).join('\n'));
 }
 
 export async function calculateCheaperPositions(client: Axios, user_id: string): Promise<void> {
-    const positions: any[] = JSON.parse((await client.get(`https://data-api.polymarket.com/positions`, {
-        params: {
-            user: user_id
-        }
-    })).data);
+    const positions = await getPositions(client, user_id);
     const markets: any[] = JSON.parse((await client.get(`/markets`, {
         params: new URLSearchParams(positions.map((p: { conditionId: string }) => ['condition_ids', p.conditionId]))
     })).data);

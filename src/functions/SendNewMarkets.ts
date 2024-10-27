@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import TelegramBot from 'node-telegram-bot-api';
 import { formatOutcome, getRecentMarkets, myTags } from "../helpers";
 
-export async function sendNewMarkets(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
+async function sendNewMarkets(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const formatter = new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 0,
         maximumFractionDigits: 1
