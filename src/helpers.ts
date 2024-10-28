@@ -149,11 +149,27 @@ export async function getPositions(client: Axios, user_id: string): Promise<any[
     })).data);
 }
 
+async function getMarketsForConditionIds(client: Axios, condition_ids: string[]): Promise<any[]> { //TODO: expand to userscripts
+    let fullMarkets = [];
+    const batch = 20;
+    for (let i = 0; i < condition_ids.length; i += batch) {
+        const params = new URLSearchParams(condition_ids.slice(i, i + 20).map((id) => ['condition_ids', id]));
+        const markets = JSON.parse((await client.get(`/markets`, {
+            params: params
+        })).data);
+        fullMarkets.push(...markets);
+    }
+    return fullMarkets;
+}
+
 export async function getPositionsWithMarkets(client: Axios, user_id: string): Promise<any[]> {
     const positions = await getPositions(client, user_id);
-    const markets = JSON.parse((await client.get(`/markets`, {
-        params: new URLSearchParams(positions.map((p: { conditionId: string }) => ['condition_ids', p.conditionId]))
-    })).data);
+    const uniqueConditionIds = Array.from(new Set(positions
+        .sort((a, b) => b.currentValue - a.currentValue)
+        .slice(0, 100)
+        .map((p: { conditionId: string }) => p.conditionId)
+    ));
+    const markets = await getMarketsForConditionIds(client, uniqueConditionIds);
     return positions.map(p => {
         return { ...p, market: markets.find((m: { conditionId: string; }) => m.conditionId == p.conditionId) };
     }).filter(p => p.market).map(p => {
