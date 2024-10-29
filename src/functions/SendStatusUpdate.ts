@@ -1,8 +1,7 @@
 import { app, InvocationContext } from "@azure/functions";
 import { Axios } from 'axios';
-import * as fs from 'fs';
 import TelegramBot from 'node-telegram-bot-api';
-import { arr_threshold, calculatePartOfTheYear, getPositions, getPositionsWithMarkets, getRecentMarkets, myTags, user_id } from "../helpers";
+import { arr_threshold, calculatePartOfTheYear, getPositionsWithMarkets, user_id } from "../helpers";
 
 function formatOutcome(outcome: string) {
     switch (outcome) {
@@ -14,6 +13,9 @@ function formatOutcome(outcome: string) {
             return `(${outcome})`;
     }
 }
+
+//TODO: extract maps to one run on positions
+//Consider ARR formula: add days of dispute resolution, APY
 
 export async function sendStatusUpdates(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const moneyFormatter = new Intl.NumberFormat('en-US', {
@@ -52,21 +54,25 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     if (dailyMoveMarkets.length) {
         message += `Markets with the biggest daily moves:\n` + dailyMoveMarkets.map(m => `${m.question} ${moneyFormatter.format(m.dailyMove * 100)}¢(${moneyFormatter.format(m.dailyMove * m.size)}$)\n`).join('');
     }
-    const profitMarkets = positions.map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(m => m.annualizedProfit < arr_threshold).sort((a, b) => a.annualizedProfit - b.annualizedProfit).slice(0, 3);
+    const profitMarkets = positions.map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(m => m.annualizedProfit < arr_threshold).sort((a, b) => a.annualizedProfit - b.annualizedProfit);
     if (profitMarkets.length) {
-        message += `Positions for closing:\n` + profitMarkets.map(m => `${m.question} ${moneyFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
+        message += `Positions for closing:\n` + profitMarkets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
     }
-    const cheaperSureBets = positions.filter(p => p.curPrice >= 0.72 && p.avgPrice > p.curPrice && p.size >= 2 && p.market.oneDayPriceChange < 0 !== p.bet).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, avgPrice: p.avgPrice, curPrice: p.curPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).sort((a, b) => b.annualizedProfit - a.annualizedProfit);
+    const cheaperSureBets = positions.filter(p => p.curPrice >= 0.7 && p.avgPrice - p.curPrice > 0.01 && p.size > 2 && p.market.oneDayPriceChange < 0 !== p.bet).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, avgPrice: p.avgPrice, curPrice: p.curPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 4);
     if (cheaperSureBets.length) {
         message += `Cheaper confident bets:\n` + cheaperSureBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
-    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.curPrice > 0.5).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, curPrice: p.curPrice, avgPrice: p.avgPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 3);
+    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.curPrice > 0.5).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, curPrice: p.curPrice, avgPrice: p.avgPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 5);
     if (risingBets.length) {
         message += `Rising bets to add funds:\n` + risingBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
 
-    const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY!, { polling: false });
-    await bot.sendMessage('44284808', message);
+    if (process.env.FUNCTIONS_WORKER_RUNTIME) {
+        const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY!, { polling: false });
+        await bot.sendMessage('44284808', message);
+    } else {
+        console.log(message);
+    }
 }
 
 app.timer('SendStatusUpdate', {
