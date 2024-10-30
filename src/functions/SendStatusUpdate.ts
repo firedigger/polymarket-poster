@@ -14,9 +14,6 @@ function formatOutcome(outcome: string) {
     }
 }
 
-//TODO: extract maps to one run on positions
-//Consider ARR formula: add days of dispute resolution, APY
-
 export async function sendStatusUpdates(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const moneyFormatter = new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 0,
@@ -34,13 +31,13 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
         }
     });
     let message = "Welcome to today's status update!\n";
-    const positions = await getPositionsWithMarkets(client, user_id);
+    const positions = (await getPositionsWithMarkets(client, user_id)).map(p => ({ ...p, question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: p.market.oneDayPriceChange * (p.bet ? 1 : -1), annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) }));
     const total = positions.reduce((acc, p) => acc + p.currentValue, 0);
     const dailyChange = positions.reduce((acc, p) => acc + (p.market.oneDayPriceChange || 0) * (p.bet ? 1 : -1) * p.size, 0);
     message += `Your daily performance is ${moneyFormatter.format(dailyChange)}$(${moneyFormatter.format(dailyChange / total * 100)}%)\n`;
     message += `Percent of profitable bets: ${probabilityFormatter.format(positions.filter(p => p.curPrice >= p.avgPrice).length / positions.length * 100)}%\n`;
     message += `Percent of profitable bets volume: ${probabilityFormatter.format(positions.filter(p => p.curPrice >= p.avgPrice).reduce((acc, p) => acc + p.initialValue, 0) / positions.reduce((acc, p) => acc + p.initialValue, 0) * 100)}%\n`;
-    const positionsForDeadlines = positions.map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, endDate: p.endDate, size: p.size })).sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
+    const positionsForDeadlines = positions.sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
     const totalSize = positions.reduce((acc, p) => acc + p.size, 0);
     let acc = 0;
     for (let i = 0; i < positionsForDeadlines.length; i++) {
@@ -50,19 +47,19 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
             break;
         }
     }
-    const dailyMoveMarkets = positions.map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: p.market.oneDayPriceChange * (p.bet ? 1 : -1), size: p.size, bet: p.bet })).filter(m => Math.abs(m.dailyMove) > 0.01).sort((a, b) => Math.abs(b.dailyMove * b.size) - Math.abs(a.dailyMove * a.size)).slice(0, 3);
+    const dailyMoveMarkets = positions.filter(m => Math.abs(m.dailyMove) > 0.01).sort((a, b) => Math.abs(b.dailyMove * b.size) - Math.abs(a.dailyMove * a.size)).slice(0, 3);
     if (dailyMoveMarkets.length) {
         message += `Markets with the biggest daily moves:\n` + dailyMoveMarkets.map(m => `${m.question} ${moneyFormatter.format(m.dailyMove * 100)}¢(${moneyFormatter.format(m.dailyMove * m.size)}$)\n`).join('');
     }
-    const profitMarkets = positions.map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(m => m.annualizedProfit < arr_threshold).sort((a, b) => a.annualizedProfit - b.annualizedProfit);
+    const profitMarkets = positions.filter(m => m.annualizedProfit < arr_threshold).sort((a, b) => a.annualizedProfit - b.annualizedProfit);
     if (profitMarkets.length) {
         message += `Positions for closing:\n` + profitMarkets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
     }
-    const cheaperSureBets = positions.filter(p => p.curPrice >= 0.7 && p.avgPrice - p.curPrice > 0.01 && p.size > 2 && p.market.oneDayPriceChange < 0 !== p.bet).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, avgPrice: p.avgPrice, curPrice: p.curPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 4);
+    const cheaperSureBets = positions.filter(p => p.curPrice >= 0.7 && p.avgPrice - p.curPrice > 0.01 && p.size > 2 && p.market.oneDayPriceChange < 0 !== p.bet).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 4);
     if (cheaperSureBets.length) {
         message += `Cheaper confident bets:\n` + cheaperSureBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
-    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.curPrice > 0.5).map(p => ({ question: `${p.title}${formatOutcome(p.outcome)}`, curPrice: p.curPrice, avgPrice: p.avgPrice, annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit > arr_threshold).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 5);
+    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.curPrice > 0.5).filter(p => p.annualizedProfit > 1).sort((a, b) => b.annualizedProfit - a.annualizedProfit).slice(0, 5);
     if (risingBets.length) {
         message += `Rising bets to add funds:\n` + risingBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
@@ -76,6 +73,6 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
 }
 
 app.timer('SendStatusUpdate', {
-    schedule: '0 0 6 * * *',
+    schedule: '0 0 7 * * *',
     handler: sendStatusUpdates
 });
