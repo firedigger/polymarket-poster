@@ -3,7 +3,7 @@ import * as fs from 'fs';
 
 export const myTags = [{ id: 96, label: 'Ukraine' }, { id: 100196, label: 'Fed rates' }, { id: 154, label: 'Middle East' }, { id: 131, label: 'Interest rates' }];
 export const user_id = "0xBcBa8baE2E66da40fDc18C80064b06cF4F124573";
-export const arr_threshold = 0.6;
+export const arr_threshold = 0.7335;
 
 async function getTags(client: Axios): Promise<void> {
     let count = 0;
@@ -173,7 +173,7 @@ export async function getPositionsWithMarkets(client: Axios, user_id: string): P
     return positions.map(p => {
         return { ...p, market: markets.find((m: { conditionId: string; }) => m.conditionId == p.conditionId) };
     }).filter(p => p.market).map(p => {
-        return { ...p, bet: JSON.parse(p.market.outcomes)[0] === p.outcome };
+        return { ...p, bet: JSON.parse(p.market.outcomes)[0] === p.outcome, curPrice: p.outcome == JSON.parse(p.market.outcomes)[0] ? p.market.bestAsk : 1 - p.market.bestBid };
     });
 }
 
