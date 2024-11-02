@@ -56,7 +56,12 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     const profitMarkets = positions.map(p => ({ ...p, annualizedProfit: (1 / (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit < arr_threshold).reverse();
     if (profitMarkets.length) {
         profitMarkets.forEach(m => markets.add(m.market.id));
-        message += `Positions for closing:\n` + profitMarkets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
+        message += `Positions for closing as per ARR:\n` + profitMarkets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
+    }
+    const profitableUnlikelyBets = positions.filter(p => p.avgPrice < 0.5 && p.curPrice <= 0.5 && p.avgPrice < (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) && p.size > 2).sort((a,b) => a.avgPrice - b.avgPrice);
+    if (profitableUnlikelyBets.length) {
+        profitableUnlikelyBets.forEach(m => markets.add(m.market.id));
+        message += `Unlikely bets for closing with profit:\n` + profitableUnlikelyBets.map(m => `${m.question} (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
     const cheaperSureBets = positions.filter(p => p.curPrice >= 0.7 && p.avgPrice - p.curPrice > 0.01 && p.size > 2 && p.market.oneDayPriceChange < 0 !== p.bet && p.annualizedProfit > arr_threshold && !markets.has(p.market.id)).slice(0, 4);
     if (cheaperSureBets.length) {
@@ -75,7 +80,7 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
         map.set(item.market.negRiskMarketID, currentSize + item.size);
         return map;
     }, new Map<string, number>());
-    const betOfTheDay = positions.filter(p => p.curPrice >= 0.56 && p.size > 3 && p.size < 50 && p.annualizedProfit > 1 && (!p.market.negRiskMarketID || (eventSizes.get(p.market.negRiskMarketID) || 0) < 50) && !markets.has(p.market.id)).slice(0, 3);
+    const betOfTheDay = positions.filter(p => p.curPrice >= 0.56 && p.initialValue > 2 && p.size < 50 && p.annualizedProfit > 1 && (!p.market.negRiskMarketID || (eventSizes.get(p.market.negRiskMarketID) || 0) < 50) && !markets.has(p.market.id)).slice(0, 3);
     if (betOfTheDay.length) {
         message += `Bets of the day:\n` + betOfTheDay.map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢\n`).join('');
     }
