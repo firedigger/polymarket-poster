@@ -12,7 +12,7 @@
     "start": "func start",
     "test": "echo \"No tests yet...\"",
     "local": "tsc && node dist/debug.js",
-    "deploy": "func azure functionapp publish polymarket-poster"
+    "deploy": "npm run clean && npm run build && func azure functionapp publish polymarket-poster"
   },
   "dependencies": {
     "@azure/functions": "^4.5.0",
