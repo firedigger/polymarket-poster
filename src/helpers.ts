@@ -3,7 +3,7 @@ import * as fs from 'fs';
 
 export const myTags = [{ id: 96, label: 'Ukraine' }, { id: 100196, label: 'Fed rates' }, { id: 154, label: 'Middle East' }, { id: 131, label: 'Interest rates' }];
 export const user_id = "0xBcBa8baE2E66da40fDc18C80064b06cF4F124573";
-export const arr_threshold = 0.7335;
+export const arr_threshold = 0.74;
 
 async function getTags(client: Axios): Promise<void> {
     let count = 0;
