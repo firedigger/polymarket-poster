@@ -162,6 +162,17 @@ async function getMarketsForConditionIds(client: Axios, condition_ids: string[])
     return fullMarkets;
 }
 
+export async function getProfit(client: Axios, user_id: string): Promise<number> {
+    const response = JSON.parse((await client.get(`https://lb-api.polymarket.com/profit`, {
+        params: {
+            address: user_id,
+            window: 'all',
+            limit: 1
+        }
+    })).data);
+    return response[0].amount;
+}
+
 export async function getPositionsWithMarkets(client: Axios, user_id: string): Promise<any[]> {
     const positions = await getPositions(client, user_id);
     const uniqueConditionIds = Array.from(new Set(positions

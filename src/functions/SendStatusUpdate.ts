@@ -1,7 +1,7 @@
-import { app, InvocationContext } from "@azure/functions";
+import { app, InvocationContext, output } from "@azure/functions";
 import { Axios } from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
-import { arr_threshold, calculatePartOfTheYear, getPositionsWithMarkets, user_id } from "../helpers";
+import { arr_threshold, calculatePartOfTheYear, getPositionsWithMarkets, getProfit, user_id } from "../helpers";
 
 function formatOutcome(outcome: string) {
     switch (outcome) {
@@ -13,6 +13,11 @@ function formatOutcome(outcome: string) {
             return `(${outcome})`;
     }
 }
+
+const tableOutput = process.env.FUNCTIONS_WORKER_RUNTIME ? output.table({
+    tableName: 'Profits',
+    connection: 'AzureWebJobsStorage'
+}) : undefined;
 
 export async function sendStatusUpdates(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const moneyFormatter = new Intl.NumberFormat('en-US', {
@@ -34,6 +39,16 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     const positions = (await getPositionsWithMarkets(client, user_id)).map(p => ({ ...p, question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: (p.market.oneDayPriceChange || 0) * (p.bet ? 1 : -1), annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).sort((a, b) => b.annualizedProfit - a.annualizedProfit);
     const total = positions.reduce((acc, p) => acc + p.currentValue, 0);
     const dailyChange = positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
+    const profit = await getProfit(client, user_id);
+    const unrealizedProfit = positions.reduce((acc, p) => acc + p.cashPnl, 0);
+    message += `Your current profit is ${moneyFormatter.format(profit)}$ ($${moneyFormatter.format(unrealizedProfit)})\n`;
+    if (tableOutput)
+        context.extraOutputs.set(tableOutput, {
+            PartitionKey: 'Profit',
+            RowKey: new Date().toISOString(),
+            Profit: profit,
+            UnrealizedProfit: unrealizedProfit
+        });
     message += `Your daily performance is ${moneyFormatter.format(dailyChange)}$(${moneyFormatter.format(dailyChange / total * 100)}%)\n`;
     message += `Percent of profitable bets: ${probabilityFormatter.format(positions.filter(p => p.curPrice >= p.avgPrice).length / positions.length * 100)}%\n`;
     message += `Percent of profitable bets volume: ${probabilityFormatter.format(positions.filter(p => p.curPrice >= p.avgPrice).reduce((acc, p) => acc + p.initialValue, 0) / positions.reduce((acc, p) => acc + p.initialValue, 0) * 100)}%\n`;
@@ -53,12 +68,12 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
         dailyMoveMarkets.forEach(m => markets.add(m.market.id));
         message += `Markets with the biggest daily moves:\n` + dailyMoveMarkets.map(m => `${m.question} ${moneyFormatter.format(m.dailyMove * 100)}¢(${moneyFormatter.format(m.dailyMove * m.size)}$)\n`).join('');
     }
-    const profitMarkets = positions.map(p => ({ ...p, annualizedProfit: (1 / (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit < arr_threshold).reverse();
-    if (profitMarkets.length) {
-        profitMarkets.forEach(m => markets.add(m.market.id));
-        message += `Positions for closing as per ARR:\n` + profitMarkets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}%\n`).join('');
+    const positionsForClosing = positions.map(p => ({ ...p, annualizedProfit: (1 / (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit < arr_threshold).reverse();
+    if (positionsForClosing.length) {
+        positionsForClosing.forEach(m => markets.add(m.market.id));
+        message += `Positions for closing as per ARR:\n` + positionsForClosing.filter(m => m.curPrice).map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}% (${probabilityFormatter.format(m.annualizedProfit * 100)}%)\n`).join('');
     }
-    const profitableUnlikelyBets = positions.filter(p => p.avgPrice < 0.5 && p.curPrice <= 0.5 && p.avgPrice < (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) && p.size > 2).sort((a,b) => a.avgPrice - b.avgPrice);
+    const profitableUnlikelyBets = positions.filter(p => p.avgPrice < 0.5 && p.curPrice <= 0.5 && p.avgPrice < (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) && p.size > 2).sort((a, b) => a.avgPrice - b.avgPrice);
     if (profitableUnlikelyBets.length) {
         profitableUnlikelyBets.forEach(m => markets.add(m.market.id));
         message += `Unlikely bets for closing with profit:\n` + profitableUnlikelyBets.map(m => `${m.question} (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
@@ -93,7 +108,9 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     }
 }
 
-app.timer('SendStatusUpdate', {
-    schedule: '0 0 7 * * *',
-    handler: sendStatusUpdates
-});
+if (process.env.FUNCTIONS_WORKER_RUNTIME)
+    app.timer('SendStatusUpdate', {
+        schedule: '0 0 7 * * *',
+        handler: sendStatusUpdates,
+        extraOutputs: [tableOutput!]
+    });
