@@ -63,41 +63,46 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
         }
     }
     const markets = new Set();
-    const dailyMoveMarkets = positions.filter(p => Math.abs(p.dailyMove) > 0.01 && !markets.has(p.market.id)).sort((a, b) => Math.abs(b.dailyMove * b.size) - Math.abs(a.dailyMove * a.size)).slice(0, 3);
+    const eventSizesByMarket: Map<string, number> = positions.reduce((map, item): any => {
+        const currentSize = map.get(item.market.id) || 0;
+        map.set(item.market.id, currentSize + item.size * (item.bet ? 1 : -1));
+        return map;
+    }, new Map<string, number>());
+    const dailyMoveMarkets = positions.filter(p => Math.abs(p.dailyMove) > 0.01).map(p => ({ ...p, size: Math.abs(eventSizesByMarket.get(p.market.id) || 0) })).sort((a, b) => Math.abs(b.dailyMove * b.size) - Math.abs(a.dailyMove * a.size)).slice(0, 3);
     if (dailyMoveMarkets.length) {
         dailyMoveMarkets.forEach(m => markets.add(m.market.id));
-        message += `Markets with the biggest daily moves:\n` + dailyMoveMarkets.map(m => `${m.question} ${moneyFormatter.format(m.dailyMove * 100)}¢(${moneyFormatter.format(m.dailyMove * m.size)}$)\n`).join('');
+        message += `<b>Markets with the biggest daily moves:</b>\n` + dailyMoveMarkets.map(m => `${m.question} ${moneyFormatter.format(m.dailyMove * 100)}¢(${moneyFormatter.format(m.dailyMove * m.size)}$)\n`).join('');
     }
-    const positionsForClosing = positions.map(p => ({ ...p, annualizedProfit: (1 / (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit < arr_threshold).reverse();
+    const positionsForClosing = positions.map(p => ({ ...p, curPrice: p.bet ? p.market.bestBid : 1 - p.market.bestAsk, annualizedProfit: (1 / (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).filter(p => p.annualizedProfit < arr_threshold).reverse();
     if (positionsForClosing.length) {
         positionsForClosing.forEach(m => markets.add(m.market.id));
-        message += `Positions for closing as per ARR:\n` + positionsForClosing.filter(m => m.curPrice).map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}% (${probabilityFormatter.format(m.annualizedProfit * 100)}%)\n`).join('');
+        message += `<b>Positions for closing as per ARR:</b>\n` + positionsForClosing.filter(m => m.curPrice).map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢ (${probabilityFormatter.format(m.annualizedProfit * 100)}%)\n`).join('');
     }
     const profitableUnlikelyBets = positions.filter(p => p.avgPrice < 0.5 && p.curPrice <= 0.5 && p.avgPrice < (p.bet ? p.market.bestBid : 1 - p.market.bestAsk) && p.size > 2).sort((a, b) => a.avgPrice - b.avgPrice);
     if (profitableUnlikelyBets.length) {
         profitableUnlikelyBets.forEach(m => markets.add(m.market.id));
-        message += `Unlikely bets for closing with profit:\n` + profitableUnlikelyBets.map(m => `${m.question} (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
+        message += `<b>Unlikely bets for closing with profit:</b>\n` + profitableUnlikelyBets.map(m => `${m.question} (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
     const cheaperSureBets = positions.filter(p => p.curPrice >= 0.7 && p.avgPrice - p.curPrice > 0.01 && p.size > 2 && p.market.oneDayPriceChange < 0 !== p.bet && p.annualizedProfit > arr_threshold && !markets.has(p.market.id)).slice(0, 4);
     if (cheaperSureBets.length) {
         cheaperSureBets.forEach(m => markets.add(m.market.id));
-        message += `Cheaper confident bets:\n` + cheaperSureBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
+        message += `<b>Cheaper confident bets:</b>\n` + cheaperSureBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
-    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.size < 50 && p.curPrice > 0.5 && p.annualizedProfit > 1 && !markets.has(p.market.id)).slice(0, 5);
+    const risingBets = positions.filter(p => p.curPrice > p.avgPrice && p.curPrice < 0.99 && p.size < 50 && p.curPrice > 0.5 && p.annualizedProfit > 1 && !markets.has(p.market.id)).slice(0, 5);
     if (risingBets.length) {
         risingBets.forEach(m => markets.add(m.market.id));
-        message += `Rising bets to add funds:\n` + risingBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
+        message += `<b>Rising bets to add funds:</b>\n` + risingBets.map(m => `${m.question} ${probabilityFormatter.format(m.annualizedProfit * 100)}% ARR (${probabilityFormatter.format(m.avgPrice * 100)}¢ -> ${probabilityFormatter.format(m.curPrice * 100)}¢)\n`).join('');
     }
-    const eventSizes: Map<string, number> = positions.reduce((map, item): any => {
+    const eventSizesbyNegMarket: Map<string, number> = positions.reduce((map, item): any => {
         if (!item.market.negRiskMarketID)
             return map;
         const currentSize = map.get(item.market.negRiskMarketID) || 0;
         map.set(item.market.negRiskMarketID, currentSize + item.size);
         return map;
     }, new Map<string, number>());
-    const betOfTheDay = positions.filter(p => p.curPrice >= 0.56 && p.initialValue > 2 && p.size < 50 && p.annualizedProfit > 1 && (!p.market.negRiskMarketID || (eventSizes.get(p.market.negRiskMarketID) || 0) < 50) && !markets.has(p.market.id)).slice(0, 3);
+    const betOfTheDay = positions.filter(p => p.curPrice >= 0.56 && p.curPrice < 0.99 && p.initialValue > 2 && p.size < 50 && p.annualizedProfit > 1 && (!p.market.negRiskMarketID || (eventSizesbyNegMarket.get(p.market.negRiskMarketID) || 0) < 50) && !markets.has(p.market.id)).slice(0, 3);
     if (betOfTheDay.length) {
-        message += `Bets of the day:\n` + betOfTheDay.map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢\n`).join('');
+        message += `<b>Bets of the day:<b>\n` + betOfTheDay.map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢\n`).join('');
     }
 
     if (process.env.FUNCTIONS_WORKER_RUNTIME) {
