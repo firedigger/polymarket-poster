@@ -35,7 +35,7 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
             'Content-Type': 'application/json'
         }
     });
-    let message = "Welcome to today's status update!\n";
+    let message = "<b>Welcome to today's status update!</b>\n";
     const positions = (await getPositionsWithMarkets(client, user_id)).map(p => ({ ...p, question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: (p.market.oneDayPriceChange || 0) * (p.bet ? 1 : -1), annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).sort((a, b) => b.annualizedProfit - a.annualizedProfit);
     const total = positions.reduce((acc, p) => acc + p.currentValue, 0);
     const dailyChange = positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
@@ -102,12 +102,12 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     }, new Map<string, number>());
     const betOfTheDay = positions.filter(p => p.curPrice >= 0.56 && p.curPrice < 0.99 && p.initialValue > 2 && p.size < 50 && p.annualizedProfit > 1 && (!p.market.negRiskMarketID || (eventSizesbyNegMarket.get(p.market.negRiskMarketID) || 0) < 50) && !markets.has(p.market.id)).slice(0, 3);
     if (betOfTheDay.length) {
-        message += `<b>Bets of the day:<b>\n` + betOfTheDay.map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢\n`).join('');
+        message += `<b>Bets of the day:</b>\n` + betOfTheDay.map(m => `${m.question} ${probabilityFormatter.format(m.curPrice * 100)}¢\n`).join('');
     }
 
     if (process.env.FUNCTIONS_WORKER_RUNTIME) {
         const bot = new TelegramBot(process.env.TELEGRAM_BOT_KEY!, { polling: false });
-        await bot.sendMessage('44284808', message);
+        await bot.sendMessage('44284808', message, { parse_mode: 'HTML' });
     } else {
         console.log(message);
     }
