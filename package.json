@@ -15,6 +15,7 @@
     "deploy": "npm run clean && npm run build && func azure functionapp publish polymarket-poster"
   },
   "dependencies": {
+    "@azure/data-tables": "^13.2.2",
     "@azure/functions": "^4.5.0",
     "@polymarket/clob-client": "^4.10.0",
     "axios": "^1.7.7",

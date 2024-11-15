@@ -43,9 +43,7 @@ async function sendNewMarkets(myTimer: any, context: InvocationContext, toTarget
         const REPORT_CHAT_ID = '44284808';
         const chatId = process.env.AZURE_FUNCTIONS_ENVIRONMENT === 'Development' || !toTarget ? REPORT_CHAT_ID : '346672381';
         await bot.sendMessage(chatId, message);
-    }
-    else {
-        context.log('No new markets');
+        context.log('New markets sent');
     }
 }
 

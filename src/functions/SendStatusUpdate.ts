@@ -2,6 +2,7 @@ import { app, InvocationContext, output } from "@azure/functions";
 import { Axios } from 'axios';
 import TelegramBot from 'node-telegram-bot-api';
 import { arr_threshold, calculatePartOfTheYear, getPositionsWithMarkets, getProfit, user_id } from "../helpers";
+import { TableClient } from "@azure/data-tables";
 
 function formatOutcome(outcome: string) {
     switch (outcome) {
@@ -18,6 +19,16 @@ const tableOutput = process.env.FUNCTIONS_WORKER_RUNTIME ? output.table({
     tableName: 'Profits',
     connection: 'AzureWebJobsStorage'
 }) : undefined;
+
+async function getPreviousProfit(): Promise<any> {
+    const connectionString = process.env.AzureWebJobsStorage!;
+    const tableName = "Profits";
+    const client = TableClient.fromConnectionString(connectionString, tableName);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const entity = await client.getEntity("Profit", yesterday.toISOString().slice(0, 10));
+    return entity.Profit;
+}
 
 export async function sendStatusUpdates(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
     const moneyFormatter = new Intl.NumberFormat('en-US', {
@@ -38,14 +49,14 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     let message = "<b>Welcome to today's status update!</b>\n";
     const positions = (await getPositionsWithMarkets(client, user_id)).map(p => ({ ...p, question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: (p.market.oneDayPriceChange || 0) * (p.bet ? 1 : -1), annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).sort((a, b) => b.annualizedProfit - a.annualizedProfit);
     const total = positions.reduce((acc, p) => acc + p.currentValue, 0);
-    const dailyChange = positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
     const profit = await getProfit(client, user_id);
+    const dailyChange = process.env.FUNCTIONS_WORKER_RUNTIME ? profit - await getPreviousProfit() : positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
     const unrealizedProfit = positions.reduce((acc, p) => acc + p.cashPnl, 0);
     message += `Your current profit is ${moneyFormatter.format(profit)}$ ($${moneyFormatter.format(unrealizedProfit)})\n`;
     if (tableOutput)
         context.extraOutputs.set(tableOutput, {
             PartitionKey: 'Profit',
-            RowKey: new Date().toISOString(),
+            RowKey: new Date().toISOString().slice(0, 10),
             Profit: profit,
             UnrealizedProfit: unrealizedProfit
         });
