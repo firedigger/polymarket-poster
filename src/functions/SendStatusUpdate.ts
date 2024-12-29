@@ -30,9 +30,7 @@ async function getPreviousProfit(): Promise<any> {
         const entity = await client.getEntity("Profit", yesterday.toISOString().slice(0, 10));
         return entity.Profit;
     } catch (e: any) {
-        if (e.statusCode === 404)
-            return undefined;
-        throw e;
+        return undefined;
     }
 }
 
