@@ -26,8 +26,14 @@ async function getPreviousProfit(): Promise<any> {
     const client = TableClient.fromConnectionString(connectionString, tableName);
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
-    const entity = await client.getEntity("Profit", yesterday.toISOString().slice(0, 10));
-    return entity.Profit;
+    try {
+        const entity = await client.getEntity("Profit", yesterday.toISOString().slice(0, 10));
+        return entity.Profit;
+    } catch (e: any) {
+        if (e.statusCode === 404)
+            return undefined;
+        throw e;
+    }
 }
 
 export async function sendStatusUpdates(myTimer: any, context: InvocationContext, toTarget: boolean = true): Promise<void> {
@@ -50,7 +56,8 @@ export async function sendStatusUpdates(myTimer: any, context: InvocationContext
     const positions = (await getPositionsWithMarkets(client, user_id)).map(p => ({ ...p, question: `${p.title}${formatOutcome(p.outcome)}`, dailyMove: (p.market.oneDayPriceChange || 0) * (p.bet ? 1 : -1), annualizedProfit: (1 / p.curPrice - 1) / calculatePartOfTheYear(new Date(p.endDate)) })).sort((a, b) => b.annualizedProfit - a.annualizedProfit);
     const total = positions.reduce((acc, p) => acc + p.currentValue, 0);
     const profit = await getProfit(client, user_id);
-    const dailyChange = process.env.FUNCTIONS_WORKER_RUNTIME ? profit - await getPreviousProfit() : positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
+    const previousProfit = process.env.FUNCTIONS_WORKER_RUNTIME ? await getPreviousProfit() : undefined;
+    const dailyChange = process.env.FUNCTIONS_WORKER_RUNTIME && previousProfit ? profit - previousProfit : positions.reduce((acc, p) => acc + p.dailyMove * p.size, 0);
     const unrealizedProfit = positions.reduce((acc, p) => acc + p.cashPnl, 0);
     message += `Your current profit is ${moneyFormatter.format(profit)}$ ($${moneyFormatter.format(unrealizedProfit)})\n`;
     if (tableOutput)
